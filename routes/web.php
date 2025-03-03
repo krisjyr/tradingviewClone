@@ -4,12 +4,10 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', function () {
-    return view('welcome');
-})->name("Home");
-
-Route::get('/chart', function () {
     return Inertia::render('chartPage', [
         'symbol' => request('symbol', 'AAPL'),
+        'timespan'=> request('timespan','day'),
+        'timemultiplier'=> request('timemultiplier','1'),
     ]);
 });
 

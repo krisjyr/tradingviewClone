@@ -3,14 +3,18 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\Http;
+use Carbon\Carbon;
 
 class MarketDataController extends Controller
 {
     
-    public function fetch($symbol)
+    public function fetch($symbol, $timespan, $timemultiplier)
     {
+        $currentDate = Carbon::now()->toDateString();
+        $lastDate = Carbon::now()->subYears(5)->toDateString();
+
         $apiKey = config('services.polygon.key');
-        $url = "https://api.polygon.io/v2/aggs/ticker/$symbol/range/1/day/2023-01-01/2023-12-31?adjusted=true&sort=asc&limit=500&apiKey=$apiKey";
+        $url = "https://api.polygon.io/v2/aggs/ticker/$symbol/range/$timemultiplier/$timespan/$lastDate/$currentDate?adjusted=true&sort=asc&apiKey=$apiKey";
     
         $response = Http::get($url);
     
