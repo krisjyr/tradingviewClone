@@ -8,7 +8,8 @@ Route::get('/', function () {
         'symbol' => request('symbol', 'AAPL'),
         'timespan'=> request('timespan','day'),
         'timemultiplier'=> request('timemultiplier','1'),
+        'chartType' => request('chartType', 'candlestick'),
     ]);
-});
+})->name('Home');
 
 require __DIR__ . "/api.php";

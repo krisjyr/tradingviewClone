@@ -1,4 +1,5 @@
 <script setup>
+import { defineProps, watch } from 'vue';
 import tradingChart from '@/Components/tradingChart.vue';
 import avatar from '@/Components/avatar.vue';
 import drawingToolbar from '@/Components/drawingToolbar.vue';
@@ -7,19 +8,27 @@ import timeInterval from '@/Components/timeInterval.vue';
 import chartStyles from '@/Components/chartStyles.vue';
 import watchlist from '@/Components/watchlist.vue';
 
-defineProps({
+const props = defineProps({
     symbol: {
         type: String,
         default: 'AAPL',
     },
     timespan: {
         type: String,
-        default: 'minute',
+        default: 'day',
     },
     timemultiplier: {
         type: String,
-        default: '5',
+        default: '1',
     },
+    chartType: {
+        type: String,
+        default: 'candlestick',
+    }
+});
+
+watch(() => {
+    console.log('chartPage.vue ', props.symbol, props.timespan, props.timemultiplier, props.chartType);
 });
 </script>
 
@@ -35,10 +44,9 @@ defineProps({
                 <avatar />
                 <symbolSearch :symbol="symbol" />
                 <div class="w-[1px] h-[65%] mx-2 bg-gray-700"></div>
-                <timeInterval :timespan="timespan" :timemultiplier="timemultiplier" />
+                <timeInterval :timespan="timespan" :timemultiplier="timemultiplier" :symbol="symbol"    />
                 <div class="w-[1px] h-[65%] mx-2 bg-gray-700"></div>
-                <chartStyles />
-
+                <chartStyles :chartType="chartType" :symbol="symbol" :timespan="timespan" :timemultiplier="timemultiplier" />
             </div>
 
             <!-- Main Content Area -->
@@ -50,7 +58,12 @@ defineProps({
 
                 <!-- Chart Container -->
                 <div class="flex-1 w-full h-full bg-[#0f0f0f] rounded-md">
-                    <tradingChart :symbol="symbol" :timespan="timespan" :timemultiplier="timemultiplier" />
+                    <tradingChart 
+                        :symbol="symbol" 
+                        :timespan="timespan" 
+                        :timemultiplier="timemultiplier" 
+                        :chartType="chartType" 
+                    />
                 </div>
 
                 <!-- Right Sidebar (Watchlist) -->

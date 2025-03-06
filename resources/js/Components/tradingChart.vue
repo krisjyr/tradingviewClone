@@ -1,6 +1,6 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
-import { createChart, CandlestickSeries } from 'lightweight-charts';
+import { ref, onMounted, computed, watch } from 'vue';
+import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import axios from 'axios';
 
 const props = defineProps({
@@ -10,45 +10,124 @@ const props = defineProps({
     },
     timespan: {
         type: String,
-        default: 'minute',
+        default: 'day',
     },
     timemultiplier: {
         type: String,
-        default: '5',
+        default: '1',
     },
+    chartType: {
+        type: String,
+        default: 'candlestick',
+    }
 });
 
 let lableTime = ref(null);
-
-switch (props.timespan) {
-    case 'hour':
-        lableTime.value = 'H';
-        break;
-    case 'day':
-        lableTime.value = 'D';
-        break;
-    case 'week':
-        lableTime.value = 'W';
-        break;
-    case 'month':
-        lableTime.value = 'M';
-        break;
-    default:
-        lableTime.value = '';
-}
-
 const chartContainer = ref(null);
 const data = ref([]);
+let chart = null;
+let candlestickSeries = null;
+let lineSeries = null;
 
 const openLast = computed(() => (data.value.length ? data.value[data.value.length - 1].o : "-"));
 const closeLast = computed(() => (data.value.length ? data.value[data.value.length - 1].c : "-"));
 const highLast = computed(() => (data.value.length ? data.value[data.value.length - 1].h : "-"));
 const lowLast = computed(() => (data.value.length ? data.value[data.value.length - 1].l : "-"));
 
-onMounted(async () => {
-    if (!chartContainer.value) return;
+const updateLabelTime = () => {
+    switch (props.timespan) {
+        case 'minute':
+            lableTime.value = 'M';
+            break;
+        case 'hour':
+            lableTime.value = 'H';
+            break;
+        case 'day':
+            lableTime.value = 'D';
+            break;
+        case 'week':
+            lableTime.value = 'W';
+            break;
+        case 'month':
+            lableTime.value = 'M';
+            break;
+        default:
+            lableTime.value = '';
+    }
+};
 
-    const chart = createChart(chartContainer.value, {
+const fetchData = async () => {
+    try {
+        const response = await axios.get(route('marketData.fetch', { 
+            symbol: props.symbol, 
+            timespan: props.timespan, 
+            timemultiplier: props.timemultiplier 
+        }));
+        
+        if (response.data.results) {
+            data.value = response.data.results;
+            updateChart();
+        } else {
+            console.error("No data returned from API:", response.data);
+        }
+    } catch (error) {
+        console.error("Error fetching market data:", error);
+    }
+};
+
+const updateChart = () => {
+    if (!chart || !data.value.length) return;
+    
+    if (candlestickSeries) {
+        chart.removeSeries(candlestickSeries);
+        candlestickSeries = null;
+    }
+    
+    if (lineSeries) {
+        chart.removeSeries(lineSeries);
+        lineSeries = null;
+    }
+    
+    if (props.chartType === 'candlestick') {
+        candlestickSeries = chart.addSeries(CandlestickSeries, { 
+            upColor: '#26a69a', 
+            downColor: '#ef5350', 
+            borderVisible: false, 
+            wickUpColor: '#26a69a', 
+            wickDownColor: '#ef5350' 
+        });
+        
+        candlestickSeries.setData(data.value.map(item => ({
+            time: item.t / 1000,
+            open: item.o,
+            high: item.h,
+            low: item.l,
+            close: item.c,
+        })));
+    } else if (props.chartType === 'line') {
+        lineSeries = chart.addSeries(LineSeries, {
+            color: '#2962FF',
+            lineWidth: 2,
+        });
+        
+        lineSeries.setData(data.value.map(item => ({
+            time: item.t / 1000,
+            value: item.c,
+        })));
+    }
+    
+    chart.timeScale().fitContent();
+};
+
+watch(() => [props.symbol, props.timespan, props.timemultiplier, props.chartType], () => {
+    updateLabelTime();
+    fetchData();
+});
+
+onMounted(() => {
+    if (!chartContainer.value) return;
+    
+    chart = createChart(chartContainer.value, {
         autoSize: false,
         layout: {
             textColor: '#ffffff7F',
@@ -58,33 +137,33 @@ onMounted(async () => {
             vertLines: { color: '#4f4f4f7F' },
             horzLines: { color: '#4f4f4f7F' },
         },
-        timeScale: { timeVisible: true, secondsVisible: false },
+        timeScale: { 
+            timeVisible: true, 
+            secondsVisible: false 
+        },
     });
-
-    try {
-        const response = await axios.get(route('marketData.fetch', { symbol: props.symbol, timespan: props.timespan, timemultiplier: props.timemultiplier }));
-        data.value = response.data.results; // ✅ Update reactive `data.value`
-        console.log("Fetched Data:", data.value);
-    } catch (error) {
-        console.error("Error fetching market data:", error);
-    }
-
-
-    if (data.value.length) {
-        const candlestickSeries = chart.addSeries(CandlestickSeries, { 
-            upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, 
-            wickUpColor: '#26a69a', wickDownColor: '#ef5350' 
+    
+    updateLabelTime();
+    fetchData();
+    
+    // Handle resize
+    const resizeObserver = new ResizeObserver(() => {
+        chart.applyOptions({ 
+            width: chartContainer.value.clientWidth, 
+            height: chartContainer.value.clientHeight 
         });
-        candlestickSeries.setData(data.value.map(item => ({
-            time: item.t / 1000,
-            open: item.o,
-            high: item.h,
-            low: item.l,
-            close: item.c,
-        })));
-
-        chart.timeScale().fitContent();
-    }
+    });
+    
+    resizeObserver.observe(chartContainer.value);
+    
+    // Cleanup on unmount
+    return () => {
+        if (chart) {
+            chart.remove();
+            chart = null;
+        }
+        resizeObserver.disconnect();
+    };
 });
 </script>
 
