@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { Inertia } from '@inertiajs/inertia'; // Import Inertia for navigation
 
 const props = defineProps({
@@ -28,21 +28,125 @@ const timeIntervals = [
 ];
 
 // Check if a time interval is active
+const CACHE_PREFIX = 'market_data_cache_';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache lifetime
+
+// Check if a time interval is active
 const isActive = (interval) => {
     return props.timespan === interval.timespan && props.timemultiplier === interval.timemultiplier;
 };
 
-// Change the time interval and refresh using Inertia.js
-const changeTimeInterval = (interval) => {
-    console.log("Changing to:", interval);
+// Generate a cache key based on parameters
+const generateCacheKey = (symbol, timespan, timemultiplier) => {
+    return `${CACHE_PREFIX}${symbol}_${timespan}_${timemultiplier}`;
+};
 
-    // Use Inertia to update the URL and component state
+// Load data from cache
+const getFromCache = (cacheKey) => {
+    try {
+        const cachedItem = localStorage.getItem(cacheKey);
+        if (!cachedItem) return null;
+        
+        const { data, timestamp } = JSON.parse(cachedItem);
+        const now = new Date().getTime();
+        
+        // Check if cache is still valid
+        if (now - timestamp < CACHE_TTL) {
+            return data;
+        } else {
+            // Clean up expired cache
+            localStorage.removeItem(cacheKey);
+            return null;
+        }
+    } catch (error) {
+        console.error("Error reading from cache:", error);
+        return null;
+    }
+};
+
+// Save data to cache
+const saveToCache = (cacheKey, data) => {
+    try {
+        const cacheEntry = {
+            data: data,
+            timestamp: new Date().getTime()
+        };
+        localStorage.setItem(cacheKey, JSON.stringify(cacheEntry));
+    } catch (error) {
+        console.error("Error saving to cache:", error);
+    }
+};
+
+// Last navigation timestamp to prevent rapid clicks
+const lastNavigationTime = ref(0);
+const NAVIGATION_COOLDOWN = 2000; // 2 seconds between navigations
+
+// Change the time interval with throttling and caching
+const changeTimeInterval = (interval) => {
+    // Don't navigate if already on this interval
+    if (isActive(interval)) {
+        console.log("Already on this interval:", interval.label);
+        return;
+    }
+    
+    // Check if navigation is too soon after previous navigation
+    const now = new Date().getTime();
+    if (now - lastNavigationTime.value < NAVIGATION_COOLDOWN) {
+        console.log("Navigation throttled. Please wait a moment before changing intervals again.");
+        return;
+    }
+    
+    // Update last navigation time
+    lastNavigationTime.value = now;
+    
+    // Create the cache key for this data request
+    const cacheKey = generateCacheKey(props.symbol, interval.timespan, interval.timemultiplier);
+    
+    console.log("Changing to:", interval.label);
+    
+    // Set a flag in sessionStorage to tell the destination page to check cache
+    sessionStorage.setItem('check_cache_on_load', cacheKey);
+    
+    // Navigate using Inertia
     Inertia.visit(route('Home', {
         symbol: props.symbol,
         timespan: interval.timespan,
         timemultiplier: interval.timemultiplier
     }));
 };
+
+// Clean up old cache entries
+const cleanupCache = () => {
+    try {
+        Object.keys(localStorage).forEach(key => {
+            if (key.startsWith(CACHE_PREFIX)) {
+                try {
+                    const cachedItem = JSON.parse(localStorage.getItem(key));
+                    const now = new Date().getTime();
+                    if (now - cachedItem.timestamp > CACHE_TTL) {
+                        localStorage.removeItem(key);
+                    }
+                } catch (e) {
+                    localStorage.removeItem(key);
+                }
+            }
+        });
+    } catch (error) {
+        console.error("Error cleaning cache:", error);
+    }
+};
+
+// Set up cache cleanup
+onMounted(() => {
+    // Clean cache on component mount and periodically
+    cleanupCache();
+    const interval = setInterval(cleanupCache, 10 * 60 * 1000); // Clean every 10 minutes
+    
+    // Clean up the interval when component is unmounted
+    onUnmounted(() => {
+        clearInterval(interval);
+    });
+});
 </script>
 
 <template>

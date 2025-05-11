@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue';
 import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import axios from 'axios';
+import SelectModal from './SelectModal.vue';
 
 const props = defineProps({
     symbol: {
@@ -22,6 +23,8 @@ const props = defineProps({
     }
 });
 
+const isModalOpen = ref(false);
+
 let lableTime = ref(null);
 const chartContainer = ref(null);
 const data = ref([]);
@@ -34,14 +37,9 @@ const closeLast = computed(() => (data.value.length ? data.value[data.value.leng
 const highLast = computed(() => (data.value.length ? data.value[data.value.length - 1].h : "-"));
 const lowLast = computed(() => (data.value.length ? data.value[data.value.length - 1].l : "-"));
 
+
 const updateLabelTime = () => {
     switch (props.timespan) {
-        case 'minute':
-            lableTime.value = 'M';
-            break;
-        case 'hour':
-            lableTime.value = 'H';
-            break;
         case 'day':
             lableTime.value = 'D';
             break;
@@ -56,15 +54,69 @@ const updateLabelTime = () => {
     }
 };
 
+const CACHE_PREFIX = 'market_data_cache_';
+const CACHE_TTL = 60 * 60 * 1000; // 60 minutes cache lifetime
+
+// Generate a cache key based on parameters (same as in TimeInterval.vue)
+const generateCacheKey = (symbol, timespan, timemultiplier) => {
+    return `${CACHE_PREFIX}${symbol}_${timespan}_${timemultiplier}`;
+};
+
+// Modified fetchData function with caching
 const fetchData = async () => {
     try {
-        const response = await axios.get(route('marketData.fetch', { 
-            symbol: props.symbol, 
-            timespan: props.timespan, 
-            timemultiplier: props.timemultiplier 
-        }));
+        // Generate cache key for this request
+        const cacheKey = generateCacheKey(
+            props.symbol, 
+            props.timespan, 
+            props.timemultiplier
+        );
         
+        // Check if we should use cache
+        let cachedData = null;
+        
+        try {
+            const cachedItem = localStorage.getItem(cacheKey);
+            if (cachedItem) {
+                const { data, timestamp } = JSON.parse(cachedItem);
+                const now = new Date().getTime();
+                
+                // Check if cache is still valid
+                if (now - timestamp < CACHE_TTL) {
+                    cachedData = data;
+                }
+            }
+        } catch (err) {
+            console.error("Error reading from cache:", err);
+        }
+        
+        // Use cached data if available
+        if (cachedData) {
+            console.log("Using cached data for:", cacheKey);
+            data.value = cachedData;
+            updateChart();
+            return;
+        }
+        
+        // If no valid cache, fetch fresh data
+        console.log("Fetching fresh data for:", cacheKey);
+        const response = await axios.get(route('marketData.fetch', {
+            symbol: props.symbol,
+            timespan: props.timespan,
+            timemultiplier: props.timemultiplier
+        }));
+                
         if (response.data.results) {
+            // Store the data in localStorage cache
+            try {
+                localStorage.setItem(cacheKey, JSON.stringify({
+                    data: response.data.results,
+                    timestamp: new Date().getTime()
+                }));
+            } catch (err) {
+                console.error("Error saving to cache:", err);
+            }
+            
             data.value = response.data.results;
             updateChart();
         } else {
@@ -74,6 +126,8 @@ const fetchData = async () => {
         console.error("Error fetching market data:", error);
     }
 };
+
+
 
 const updateChart = () => {
     if (!chart || !data.value.length) return;
@@ -119,6 +173,7 @@ const updateChart = () => {
     chart.timeScale().fitContent();
 };
 
+// The existing watcher, now using the cached fetchData
 watch(() => [props.symbol, props.timespan, props.timemultiplier, props.chartType], () => {
     updateLabelTime();
     fetchData();
@@ -142,6 +197,32 @@ onMounted(() => {
             secondsVisible: false 
         },
     });
+
+    const checkCacheKey = sessionStorage.getItem('check_cache_on_load');
+    if (checkCacheKey) {
+        // Clear the flag
+        sessionStorage.removeItem('check_cache_on_load');
+        
+        // Try to load from cache
+        try {
+            const cachedItem = localStorage.getItem(checkCacheKey);
+            if (cachedItem) {
+                const { data: cachedData, timestamp } = JSON.parse(cachedItem);
+                const now = new Date().getTime();
+                
+                // Check if cache is still valid
+                if (now - timestamp < CACHE_TTL) {
+                    console.log("Loading from cache on initial render");
+                    data.value = cachedData;
+                    updateChart();
+                    // Skip the initial API call since we have data
+                    return;
+                }
+            }
+        } catch (err) {
+            console.error("Error loading from cache on mount:", err);
+        }
+    }
     
     updateLabelTime();
     fetchData();
@@ -173,9 +254,9 @@ onMounted(() => {
             <div class="absolute top-1 left-1 bg-black bg-opacity-75 z-50 flex items-center justify-center rounded gap-3">
                 <div
                     class="flex items-center space-x-1 text-body p-[0.15rem] rounded border border-black border-opacity-0 hover:bg-opacity-100 hover:bg-[#0f0f0f] hover:border-gray-400 hover:border-opacity-100">
-                    <button class="text-gray-400 hover:bg-gray-700 rounded-sm px-1"> {{ props.symbol }} </button>
+                    <button class="text-gray-400 hover:bg-gray-700 rounded-sm px-1" @click="isModalOpen = true"> {{ props.symbol.startsWith('C:') || props.symbol.startsWith('I:') ? props.symbol.slice(2) : props.symbol }} </button>
                     <span class="text-gray-400 select-none">•</span>
-                    <button class="text-gray-400 hover:bg-gray-700 rounded-sm px-1"> {{ props.timemultiplier }}{{ lableTime }}</button>
+                    <span class="text-gray-400 rounded-sm px-1"> {{ props.timemultiplier }}{{ lableTime }}</span>
                     <span class="text-gray-400 select-none">•</span>
                     <span class="text-gray-400 select-none">FXCM</span>
                 </div>
@@ -188,4 +269,6 @@ onMounted(() => {
             </div>
         </div>
     </div>
+
+    <SelectModal :isOpen="isModalOpen" @close="isModalOpen = false"/>
 </template>
