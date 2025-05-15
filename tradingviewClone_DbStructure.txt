@@ -1,0 +1,7 @@
+Table: Symbols
+-------------------
+id: bigint, primary key, auto-increment
+symbol: string, unique, indexed (e.g., AAPL, MSFT)
+is_active: boolean, default true
+created_at: timestamp
+updated_at: timestamp
